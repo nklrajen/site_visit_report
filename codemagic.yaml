@@ -1,0 +1,45 @@
+workflows:
+  android-release:
+    name: Android Release APK
+    max_build_duration: 60
+    environment:
+      flutter: 3.19.6
+      java: 17
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Fix settings.gradle
+        script: |
+          printf 'pluginManagement {\n    def flutterSdkPath = {\n        def properties = new Properties()\n        file("local.properties").withInputStream { properties.load(it) }\n        def flutterSdkPath = properties.getProperty("flutter.sdk")\n        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"\n        return flutterSdkPath\n    }()\n    includeBuild("${flutterSdkPath}/packages/flutter_tools/gradle")\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n}\nplugins {\n    id "dev.flutter.flutter-gradle-plugin" version "1.0.0" apply false\n}\ninclude ":app"\n' > android/settings.gradle
+          echo "settings.gradle written"
+          cat android/settings.gradle
+
+      - name: Fix root build.gradle
+        script: |
+          printf 'allprojects {\n    repositories {\n        google()\n        mavenCentral()\n    }\n}\nrootProject.buildDir = "../build"\nsubprojects {\n    project.buildDir = "${rootProject.buildDir}/${project.name}"\n}\nsubprojects {\n    project.evaluationDependsOn(":app")\n}\ntasks.register("clean", Delete) {\n    delete rootProject.buildDir\n}\n' > android/build.gradle
+          echo "root build.gradle written"
+
+      - name: Fix app build.gradle
+        script: |
+          printf 'plugins {\n    id "com.android.application"\n    id "kotlin-android"\n    id "dev.flutter.flutter-gradle-plugin"\n}\nandroid {\n    namespace "com.axiom.sitevisitreport"\n    compileSdk 34\n    ndkVersion "25.1.8937393"\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }\n    kotlinOptions {\n        jvmTarget = "1.8"\n    }\n    defaultConfig {\n        applicationId "com.axiom.sitevisitreport"\n        minSdk 21\n        targetSdk 34\n        versionCode 1\n        versionName "1.0.0"\n    }\n    buildTypes {\n        release {\n            signingConfig signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false\n        }\n    }\n}\nflutter {\n    source "../.."\n}\n' > android/app/build.gradle
+          echo "app/build.gradle written"
+          cat android/app/build.gradle
+
+      - name: Fix gradle properties
+        script: |
+          printf 'org.gradle.jvmargs=-Xmx4G\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' > android/gradle.properties
+          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip\n' > android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Add MainActivity
+        script: |
+          mkdir -p android/app/src/main/kotlin/com/axiom/sitevisitreport
+          printf 'package com.axiom.sitevisitreport\nimport io.flutter.embedding.android.FlutterActivity\nclass MainActivity: FlutterActivity()\n' > android/app/src/main/kotlin/com/axiom/sitevisitreport/MainActivity.kt
+          mkdir -p android/app/src/main/res/values
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">\n        <item name="android:windowBackground">@android:color/white</item>\n    </style>\n    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">\n        <item name="android:windowBackground">@android:color/white</item>\n    </style>\n</resources>\n' > android/app/src/main/res/values/styles.xml
+
+      - name: Build APK
+        script: flutter build apk --release --no-tree-shake-icons
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
