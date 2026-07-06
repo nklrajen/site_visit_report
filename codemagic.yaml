@@ -3,12 +3,13 @@ workflows:
     name: Android Release APK
     max_build_duration: 60
     environment:
-      flutter: stable
+      flutter: 3.19.6
       java: 17
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
       - name: Build APK
-        script: flutter build apk --release
+        script: |
+          flutter build apk --release --no-tree-shake-icons
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
