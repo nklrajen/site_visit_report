@@ -1,0 +1,143 @@
+workflows:
+  android-release:
+    name: Android Release APK
+    max_build_duration: 60
+    environment:
+      flutter: 3.19.6
+      java: 17
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Rewrite android/settings.gradle
+        script: |
+          cat > android/settings.gradle << 'EOF'
+          pluginManagement {
+              def flutterSdkPath = {
+                  def properties = new Properties()
+                  file("local.properties").withInputStream { properties.load(it) }
+                  def flutterSdkPath = properties.getProperty("flutter.sdk")
+                  assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+                  return flutterSdkPath
+              }()
+              includeBuild("${flutterSdkPath}/packages/flutter_tools/gradle")
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          plugins {
+              id "dev.flutter.flutter-gradle-plugin" version "1.0.0" apply false
+          }
+          include ":app"
+          EOF
+
+      - name: Rewrite android/build.gradle
+        script: |
+          cat > android/build.gradle << 'EOF'
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.buildDir = "../build"
+          subprojects {
+              project.buildDir = "${rootProject.buildDir}/${project.name}"
+          }
+          subprojects {
+              project.evaluationDependsOn(":app")
+          }
+          tasks.register("clean", Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
+
+      - name: Rewrite android/app/build.gradle
+        script: |
+          cat > android/app/build.gradle << 'EOF'
+          plugins {
+              id "com.android.application"
+              id "kotlin-android"
+              id "dev.flutter.flutter-gradle-plugin"
+          }
+          android {
+              namespace "com.axiom.sitevisitreport"
+              compileSdk 34
+              ndkVersion "25.1.8937393"
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+              kotlinOptions {
+                  jvmTarget = "1.8"
+              }
+              defaultConfig {
+                  applicationId "com.axiom.sitevisitreport"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.debug
+                      minifyEnabled false
+                      shrinkResources false
+                  }
+              }
+          }
+          flutter {
+              source "../.."
+          }
+          EOF
+
+      - name: Rewrite gradle.properties
+        script: |
+          cat > android/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
+      - name: Rewrite gradle-wrapper.properties
+        script: |
+          cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-all.zip
+          EOF
+
+      - name: Ensure MainActivity.kt exists
+        script: |
+          mkdir -p android/app/src/main/kotlin/com/axiom/sitevisitreport
+          cat > android/app/src/main/kotlin/com/axiom/sitevisitreport/MainActivity.kt << 'EOF'
+          package com.axiom.sitevisitreport
+          import io.flutter.embedding.android.FlutterActivity
+          class MainActivity: FlutterActivity()
+          EOF
+
+      - name: Ensure styles.xml exists
+        script: |
+          mkdir -p android/app/src/main/res/values
+          cat > android/app/src/main/res/values/styles.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+                  <item name="android:windowBackground">@android:color/white</item>
+              </style>
+              <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+                  <item name="android:windowBackground">@android:color/white</item>
+              </style>
+          </resources>
+          EOF
+
+      - name: Build APK
+        script: |
+          flutter build apk --release --no-tree-shake-icons
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
